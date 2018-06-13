@@ -89,6 +89,16 @@ ZaberBase::~ZaberBase()
 }
 
 
+// NOTE: the functions
+// 1. SetSerialCommand and GetSerialAnswer are from MMCore.h and are synchronous (blocking)
+// 2. ReadFromSerial (and its currently unused counterpart WriteToSerial) are from CoreCallback and
+//    are also synchronous (blocking)
+// 3. writeToSerialPort and readFromSerialPort are from MMCore.h and are asynchronous (non-blocking)
+// So chances are we want to use the blocking functions from (2) rather than (3) because:
+// - one of them is called aready anyway (in ClearPort)
+// - we don't want to mess around with asynchronous coding unless strictly necessary
+
+
 // COMMUNICATION "clear buffer" utility function:
 int ZaberBase::ClearPort() const
 {
