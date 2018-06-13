@@ -28,9 +28,7 @@
 #endif
 
 #include "Zaber.h"
-#include "XYStage.h"
 #include "Stage.h"
-#include "FilterWheel.h"
 
 using namespace std;
 
@@ -49,25 +47,15 @@ const char* g_Msg_INVALID_DEVICE_NUM = "Device numbers must be in the range of 1
 //////////////////////////////////////////////////////////////////////////////////
 MODULE_API void InitializeModuleData()
 {
-	RegisterDevice(g_XYStageName, MM::XYStageDevice, g_XYStageDescription);
 	RegisterDevice(g_StageName, MM::StageDevice, g_StageDescription);
-	RegisterDevice(g_FilterWheelName, MM::StateDevice, g_FilterWheelDescription);
 }                                                            
 
 
 MODULE_API MM::Device* CreateDevice(const char* deviceName)                  
 {
-	if (strcmp(deviceName, g_XYStageName) == 0)
-	{
-		return new XYStage();
-	}
-	else if (strcmp(deviceName, g_StageName) == 0)
+	if (strcmp(deviceName, g_StageName) == 0)
 	{	
 		return new Stage();
-	}
-	else if (strcmp(deviceName, g_FilterWheelName) == 0)
-	{	
-		return new FilterWheel();
 	}
 	else
 	{	
