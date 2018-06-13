@@ -101,6 +101,7 @@ int ZaberBase::ClearPort() const
 
 	while ((int) read == bufSize)
 	{
+                // FIXME: ReadFromSerial is ASCII??
 		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read);
 		if (ret != DEVICE_OK) 
 		{
@@ -117,6 +118,7 @@ int ZaberBase::SendCommand(const string command) const
 {
 	core_->LogMessage(device_, "ZaberBase::SendCommand\n", true);
 
+        // FIXME: SetSerialCommand is ASCII??
 	const char* msgFooter = "\n"; // required by Zaber ASCII protocol
 	string baseCommand = "";
 	baseCommand += command;
@@ -140,6 +142,7 @@ int ZaberBase::QueryCommand(const string command, vector<string>& reply) const
 		return ret;
 	}
 
+        // FIXME: GetSerialAnswer is ASCII??
 	ret = core_->GetSerialAnswer(device_, port_.c_str(), BUFSIZE, buf, msgFooter);
 	if (ret != DEVICE_OK) 
 	{
