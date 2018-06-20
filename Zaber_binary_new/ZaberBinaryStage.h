@@ -39,9 +39,10 @@ class ZaberBinaryStage: public CStageBase<ZaberBinaryStage>
 {
 public:
 	ZaberBinaryStage();
+	ZaberBinaryStage(MM::Device *device);
 	~ZaberBinaryStage();
 
-	/*
+
 	// Device API
 	// ----------
 	int Initialize();
@@ -66,7 +67,7 @@ public:
 
 	int IsStageSequenceable(bool& isSequenceable) const {isSequenceable = false; return DEVICE_OK;}
 	bool IsContinuousFocusDrive() const {return false;}
-
+	
 	// action interface
 	// ----------------
 	int OnPort          (MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -101,11 +102,9 @@ private:
 	int homingTimeoutMs_;
 	double stepSizeUm_;
 	double convFactor_; // not very informative name
-	std::string cmdPrefix_;
 	long resolution_;
 	long motorSteps_;
 	double linearMotion_;
-	*/
 
 };
 
