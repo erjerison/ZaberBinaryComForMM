@@ -95,12 +95,14 @@ ZaberBinaryStage::~ZaberBinaryStage()
 	Shutdown();
 }
 
+//Check that these properties are initialized in the other constructor and then delete this one
+
 ZaberBinaryStage::ZaberBinaryStage(MM::Device *device) :
 	initialized_(false),
 	port_("Undefined"),
 	device_(device),
 	core_(0),
-	cmdPrefix_("/")
+	cmdPrefix_("/") //may need to change for binary commands
 {
 }
 
@@ -460,7 +462,7 @@ int ZaberBinaryStage::ClearPort() const
 
 	while ((int) read == bufSize)
 	{
-		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read);
+		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read); //Replace ReadFromSerial with suitable binary
 		if (ret != DEVICE_OK) 
 		{
 			return ret;
@@ -472,19 +474,19 @@ int ZaberBinaryStage::ClearPort() const
 
 
 // COMMUNICATION "send" utility function:
-int ZaberBinaryStage::SendCommand(const string command) const
+int ZaberBinaryStage::SendCommand(const string command) const //Args of SendCommand need to change
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::SendCommand\n", true);
 
 	const char* msgFooter = "\n"; // required by Zaber ASCII protocol
 	string baseCommand = "";
 	baseCommand += command;
-	return core_->SetSerialCommand(device_, port_.c_str(), baseCommand.c_str(), msgFooter);
+	return core_->SetSerialCommand(device_, port_.c_str(), baseCommand.c_str(), msgFooter); //Replace SetSerialCommand with suitable binary
 }
 
 
 // COMMUNICATION "send & receive" utility function:
-int ZaberBinaryStage::QueryCommand(const string command, vector<string>& reply) const
+int ZaberBinaryStage::QueryCommand(const string command, vector<string>& reply) const //Args of QueryCommand need to change
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand\n", true);
 
@@ -499,7 +501,7 @@ int ZaberBinaryStage::QueryCommand(const string command, vector<string>& reply) 
 		return ret;
 	}
 
-	ret = core_->GetSerialAnswer(device_, port_.c_str(), BUFSIZE, buf, msgFooter);
+	ret = core_->GetSerialAnswer(device_, port_.c_str(), BUFSIZE, buf, msgFooter); //Replace GetSerialAnswer with suitable binary
 	if (ret != DEVICE_OK) 
 	{
 		return ret;
@@ -547,10 +549,10 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 	core_->LogMessage(device_, "ZaberBinaryStage::GetSetting\n", true);
 
 	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " get " << setting;
+	cmd << cmdPrefix_ << device << " " << axis << " get " << setting; //cmd needs translation to binary
 	vector<string> resp;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp);
+	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand need to change
 	if (ret != DEVICE_OK) 
 	{
 		return ret;
@@ -568,10 +570,10 @@ int ZaberBinaryStage::SetSetting(long device, long axis, string setting, long da
 	core_->LogMessage(device_, "ZaberBinaryStage::SetSetting\n", true);
 
 	ostringstream cmd; 
-	cmd << cmdPrefix_ << device << " " << axis << " set " << setting << " " << data;
+	cmd << cmdPrefix_ << device << " " << axis << " set " << setting << " " << data; //cmd needs translation to binary
 	vector<string> resp;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp);
+	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
 	if (ret != DEVICE_OK)
 	{
 		return ERR_SETTING_FAILED;
@@ -586,10 +588,10 @@ bool ZaberBinaryStage::IsBusy(long device) const
 	core_->LogMessage(device_, "ZaberBinaryStage::IsBusy\n", true);
 
 	ostringstream cmd;
-	cmd << cmdPrefix_ << device;
+	cmd << cmdPrefix_ << device; //cmd needs translation to binary
 	vector<string> resp;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp);
+	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
 	if (ret != DEVICE_OK)
 	{
 		ostringstream os;
@@ -607,9 +609,9 @@ int ZaberBinaryStage::Stop(long device) const
 	core_->LogMessage(device_, "ZaberBinaryStage::Stop\n", true);
 
 	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " stop";
+	cmd << cmdPrefix_ << device << " stop"; //cmd needs translation to binary
 	vector<string> resp;
-	return QueryCommand(cmd.str().c_str(), resp);
+	return QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
 }
 
 
@@ -632,9 +634,9 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 	core_->LogMessage(device_, "ZaberBinaryStage::SendMoveCommand\n", true);
 
 	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " move " << type << " " << data;
+	cmd << cmdPrefix_ << device << " " << axis << " move " << type << " " << data; //cmd needs translation to binary
 	vector<string> resp;
-	return QueryCommand(cmd.str().c_str(), resp);
+	return QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand need to change
 }
 
 
@@ -643,7 +645,7 @@ int ZaberBinaryStage::SendAndPollUntilIdle(long device, long axis, string comman
 	core_->LogMessage(device_, "ZaberBinaryStage::SendAndPollUntilIdle\n", true);
 
 	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " " << command;
+	cmd << cmdPrefix_ << device << " " << axis << " " << command; //cmd needs translation to binary
 	vector<string> resp;
 
 	int ret = QueryCommand(cmd.str().c_str(), resp);
@@ -670,3 +672,145 @@ int ZaberBinaryStage::SendAndPollUntilIdle(long device, long axis, string comman
 	core_->LogMessage(device_, os.str().c_str(), true);
 	return DEVICE_OK;
 }
+
+
+/*
+//Functions from UserDefinedSerialImpl.h for communication with a binary device. (Q: why were they in the .h file? Does it matter?)
+//This function may be useful for translating escaped strings into bytes
+
+template <template <class> class TBasicDevice, class UConcreteDevice>
+int
+UserDefSerialBase<TBasicDevice, UConcreteDevice>::
+CreateByteStringProperty(const char* name, std::vector<char>& varRef,
+      bool preInit)
+{
+   class Functor : public MM::ActionFunctor, boost::noncopyable
+   {
+      std::vector<char>& varRef_;
+   public:
+      Functor(std::vector<char>& varRef) : varRef_(varRef) {}
+      virtual int Execute(MM::PropertyBase* pProp, MM::ActionType eAct)
+      {
+         if (eAct == MM::BeforeGet)
+         {
+            pProp->Set(EscapedStringFromByteString(varRef_).c_str());
+         }
+         else if (eAct == MM::AfterSet)
+         {
+            std::string s;
+            pProp->Get(s);
+            std::vector<char> bytes;
+            int err = ByteStringFromEscapedString(s, bytes);
+            if (err != DEVICE_OK)
+               return err;
+            varRef_ = bytes;
+         }
+         return DEVICE_OK;
+      }
+   };
+
+   return Super::CreateStringProperty(name,
+         EscapedStringFromByteString(varRef).c_str(), false,
+         new Functor(varRef), preInit);
+}
+
+//These two functions should give us a template for rewriting QueryCommand above
+
+template <template <class> class TBasicDevice, class UConcreteDevice>
+int
+UserDefSerialBase<TBasicDevice, UConcreteDevice>::
+SendRecv(const std::vector<char>& command,
+      const std::vector<char>& expectedResponse)
+{
+   if (command.empty())
+      return DEVICE_OK;
+
+   int err;
+
+   err = Super::PurgeComPort(port_.c_str());
+   if (err != DEVICE_OK)
+      return err;
+
+   err = Send(command);
+   if (err != DEVICE_OK)
+      return err;
+
+   if (expectedResponse.empty())
+      return DEVICE_OK;
+
+   err = responseDetector_->RecvExpected(Super::GetCoreCallback(), this,
+         port_, expectedResponse);
+   if (err != DEVICE_OK)
+      return err;
+
+   return DEVICE_OK;
+}
+
+template <template <class> class TBasicDevice, class UConcreteDevice>
+int
+UserDefSerialBase<TBasicDevice, UConcreteDevice>::
+SendQueryRecvAlternative(const std::vector<char>& command,
+      const std::vector< std::vector<char> >& responseAlts,
+      size_t& responseAltIndex)
+{
+   if (command.empty())
+      return ERR_QUERY_COMMAND_EMPTY;
+
+   int err;
+
+   err = Super::PurgeComPort(port_.c_str());
+   if (err != DEVICE_OK)
+      return err;
+
+   err = Send(command);
+   if (err != DEVICE_OK)
+      return err;
+
+   err = responseDetector_->RecvAlternative(Super::GetCoreCallback(), this,
+         port_, responseAlts, responseAltIndex);
+   if (err != DEVICE_OK)
+      return err;
+
+   return DEVICE_OK;
+}
+
+//This is the basic 'Send' function; we can use the BinaryMode_ section to replace the ASCII Send function above
+
+template <template <class> class TBasicDevice, class UConcreteDevice>
+int
+UserDefSerialBase<TBasicDevice, UConcreteDevice>::
+Send(const std::vector<char>& command)
+{
+   if (command.empty())
+      return DEVICE_OK;
+
+   int err;
+
+   if (binaryMode_)
+   {
+      err = Super::WriteToComPort(port_.c_str(),
+            reinterpret_cast<const unsigned char*>(&command[0]),
+            static_cast<unsigned int>(command.size()));
+      if (err != DEVICE_OK)
+         return err;
+   }
+   else
+   {
+      // Make sure there are no null bytes in the command
+      std::vector<char>::const_iterator foundNull =
+         std::find(command.begin(), command.end(), '\0');
+      if (foundNull != command.end())
+         return ERR_ASCII_COMMAND_CONTAINS_NULL;
+
+      std::string commandString(command.begin(), command.end());
+      err = Super::SendSerialCommand(port_.c_str(), commandString.c_str(),
+            asciiTerminator_.c_str());
+      if (err != DEVICE_OK)
+         return err;
+   }
+
+   return DEVICE_OK;
+}
+
+//We may also need some stuff from ResponseDetector.cpp, but I am confused about how that works
+*/
