@@ -39,7 +39,6 @@ class ZaberBinaryStage: public CStageBase<ZaberBinaryStage>
 {
 public:
 	ZaberBinaryStage();
-	ZaberBinaryStage(MM::Device *device);
 	~ZaberBinaryStage();
 
 

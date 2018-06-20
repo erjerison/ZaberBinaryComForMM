@@ -55,7 +55,10 @@ ZaberBinaryStage::ZaberBinaryStage() :
 	cmdPrefix_("/"),
 	resolution_(64),
 	motorSteps_(200),
-	linearMotion_(2.0)
+	linearMotion_(2.0),
+	initialized_(false),
+	port_("Undefined"),
+	core_(0)
 {
 	this->LogMessage("Stage::Stage\n", true);
 
@@ -65,6 +68,9 @@ ZaberBinaryStage::ZaberBinaryStage() :
 	SetErrorText(ERR_BUSY_TIMEOUT, g_Msg_BUSY_TIMEOUT);
 	SetErrorText(ERR_COMMAND_REJECTED, g_Msg_COMMAND_REJECTED);
 	SetErrorText(ERR_SETTING_FAILED, g_Msg_SETTING_FAILED);
+
+	// Used-to-be baseclass device_
+	this->device_ = this;
 
 	// Pre-initialization properties
 	CreateProperty(MM::g_Keyword_Name, g_StageName, MM::String, true);
@@ -93,17 +99,6 @@ ZaberBinaryStage::~ZaberBinaryStage()
 {
 	this->LogMessage("Stage::~Stage\n", true);
 	Shutdown();
-}
-
-//Check that these properties are initialized in the other constructor and then delete this one
-
-ZaberBinaryStage::ZaberBinaryStage(MM::Device *device) :
-	initialized_(false),
-	port_("Undefined"),
-	device_(device),
-	core_(0),
-	cmdPrefix_("/") //may need to change for binary commands
-{
 }
 
 ///////////////////////////////////////////////////////////////////////////////
