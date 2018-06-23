@@ -6,6 +6,7 @@
 #include <ModuleInterface.h>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 //////////////////////////////////////////////////////////////////////////////
 // Various constants: error codes, error messages
@@ -30,9 +31,9 @@ extern const char* g_Msg_SETTING_FAILED;
 extern const char* g_Msg_INVALID_DEVICE_NUM;
 
 //Stage-specific constants
-
 extern const char* g_StageName;
 extern const char* g_StageDescription;
+extern const unsigned long stage_byte_len_;
 
 class ZaberBinaryStage: public CStageBase<ZaberBinaryStage>
 
@@ -79,15 +80,14 @@ public:
 
 	protected:
 	int ClearPort() const;
-	int SendCommand(const std::string command) const;
-	int QueryCommand(const std::string command, std::vector<std::string>& reply) const;
+	int SendCommand(const std::vector<const unsigned char> command) const;
+	int QueryCommand(const std::vector<const unsigned char> command, std::vector<unsigned char>& reply) const;
 	int GetSetting(long device, long axis, std::string setting, long& data) const;
 	int SetSetting(long device, long axis, std::string setting, long data) const;
 	bool IsBusy(long device) const;
 	int Stop(long device) const;
 	int GetLimits(long device, long axis, long& min, long& max) const;
 	int SendMoveCommand(long device, long axis, std::string type, long data) const;
-	int SendAndPollUntilIdle(long device, long axis, std::string command, int timeoutMs) const;
 
 	bool initialized_;
 	std::string port_;

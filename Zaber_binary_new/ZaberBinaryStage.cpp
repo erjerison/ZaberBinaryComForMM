@@ -19,6 +19,8 @@ const char* g_Msg_INVALID_DEVICE_NUM = "Device numbers must be in the range of 1
 const char* g_StageName = "Stage";
 const char* g_StageDescription = "Zaber Stage";
 
+const unsigned long stage_byte_len_ = 6;
+
 //////////////////////////////////////////////////////////////////////////////////
 // Exported MMDevice API
 //////////////////////////////////////////////////////////////////////////////////
@@ -249,10 +251,13 @@ int ZaberBinaryStage::Stop()
 int ZaberBinaryStage::Home()
 {
 	this->LogMessage("Stage::Home\n", true);
-	//TODO try tools findrange first?
-	ostringstream cmd;
-	cmd << cmdPrefix_ << "home";
-	return SendAndPollUntilIdle(deviceAddress_, axisNumber_, cmd.str().c_str(), homingTimeoutMs_);
+
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = 1;
+	cmd[1] = 1;
+	vector<unsigned char> resp;
+	return QueryCommand(cmd, resp);
 }
 
 int ZaberBinaryStage::SetAdapterOriginUm(double /*d*/)
@@ -267,7 +272,7 @@ int ZaberBinaryStage::SetOrigin()
 	return DEVICE_UNSUPPORTED_COMMAND;
 }
 
-int ZaberBinaryStage::GetLimits(double& lower, double& upper)
+int ZaberBinaryStage::GetLimits(double& lower, double& upper) //EJ: confusing!
 {
 	this->LogMessage("Stage::GetLimits\n", true);
 
@@ -457,7 +462,7 @@ int ZaberBinaryStage::ClearPort() const
 
 	while ((int) read == bufSize)
 	{
-		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read); //Replace ReadFromSerial with suitable binary
+		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read);
 		if (ret != DEVICE_OK) 
 		{
 			return ret;
@@ -469,26 +474,28 @@ int ZaberBinaryStage::ClearPort() const
 
 
 // COMMUNICATION "send" utility function:
-int ZaberBinaryStage::SendCommand(const string command) const //Args of SendCommand need to change
+int ZaberBinaryStage::SendCommand(const std::vector<const unsigned char> command) const //Args of SendCommand need to change
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::SendCommand\n", true);
 
-	const char* msgFooter = "\n"; // required by Zaber ASCII protocol
-	string baseCommand = "";
-	baseCommand += command;
-	return core_->SetSerialCommand(device_, port_.c_str(), baseCommand.c_str(), msgFooter); //Replace SetSerialCommand with suitable binary
+	//Proposed recasting of vector
+	if(command.size() != stage_byte_len_) {
+		// Consider throwing an exception (base on convention in this jungle)
+		return 1;
+	}
+	const unsigned char* baseCommand = reinterpret_cast<const unsigned char*>(&command);
+
+	return core_->WriteToSerial(device_, port_.c_str(), baseCommand, stage_byte_len_);
 }
 
 
 // COMMUNICATION "send & receive" utility function:
-int ZaberBinaryStage::QueryCommand(const string command, vector<string>& reply) const //Args of QueryCommand need to change
+int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, vector<unsigned char>& reply) const //Args of QueryCommand need to change
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand\n", true);
 
-	const char* msgFooter = "\r\n"; // required by Zaber ASCII protocol
-
-	const size_t BUFSIZE = 2048;
-	char buf[BUFSIZE] = {'\0'};
+	unsigned char replyCStyle[stage_byte_len_] = {};
+	for(size_t i=0; i < stage_byte_len_; replyCStyle[i++] = 0);
 
 	int ret = SendCommand(command);
 	if (ret != DEVICE_OK) 
@@ -496,43 +503,32 @@ int ZaberBinaryStage::QueryCommand(const string command, vector<string>& reply) 
 		return ret;
 	}
 
-	ret = core_->GetSerialAnswer(device_, port_.c_str(), BUFSIZE, buf, msgFooter); //Replace GetSerialAnswer with suitable binary
+	unsigned long respLength;
+	ret = core_->ReadFromSerial(device_, port_.c_str(), replyCStyle, stage_byte_len_, respLength);
 	if (ret != DEVICE_OK) 
 	{
 		return ret;
 	}
 
-	string resp = buf;
-	if (resp.length() < 1)
+	if (respLength != stage_byte_len_)
 	{
 		return  DEVICE_SERIAL_INVALID_RESPONSE;
 	}
 
-	// remove checksum before parsing
-	int thirdLast = int(resp.length() - 3);
-	if (resp[thirdLast] == ':')
-	{
-		resp.erase(thirdLast, string::npos);
-	}
+	// fill reply with replyCStyle
+	for(size_t i=0; i < stage_byte_len_; reply[i++] = replyCStyle[i]);
 
-	CDeviceUtils::Tokenize(resp, reply, " ");
-	/* reply[0] = message type and device address, reply[1] = axis number,
-	 * reply[2] = reply flags, reply[3] = device status, reply[4] = warning flags,
-	 * reply[5] (and possibly reply[6]) = response data, if there is data
-	 */
-	if (reply.size() < 5)
-	{
-		return DEVICE_SERIAL_INVALID_RESPONSE;
-	}
-
-	if (reply[4] == "FD")
-	{
-		return ERR_DRIVER_DISABLED;
-	}
-
-	if (reply[2] == "RJ")
-	{
-		return ERR_COMMAND_REJECTED;
+	// byte #2 is 255 if an error occurred
+	if (reply[1] == 255) {
+		// bytes #3-6 are the error code, but there are < 256 errors so byte #3 is enough
+		// hopefully none of those is the same as DEVICE_SERIAL_INVALID_RESPONSE, or else
+		// ...
+		// ...
+		// boom!
+		return reply[2];
+		// boom!
+		// ...
+		// boom boom!
 	}
 
 	return DEVICE_OK;
@@ -543,19 +539,41 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::GetSetting\n", true);
 
-	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " get " << setting; //cmd needs translation to binary
-	vector<string> resp;
+	/*
+	Byte_1 = device (0 or 1; shouldn't matter)
+	Byte_2 = 53 (Return Setting command)
+	Byte_3 - Byte_6: if setting is resolution, 37 (note that this is microstep resolution)
+					 if setting is position, 45
+					 if setting is maxspeed, 42 (this is the target speed not the max speed, but close enough)
+					 if setting is accel, 43
+					 if setting is limit.min, 106
+					 if setting is limit.max, 44
+	*/
+	unordered_map<string, unsigned char> commandDict;
+	commandDict["resolution"] = 37;
+	commandDict["position"] = 45;
+	commandDict["maxspeed"] = 42;
+	commandDict["accel"] = 43;
+	commandDict["limit.min"] = 106;
+	commandDict["limit.max"] = 44;
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = device;
+	cmd[1] = 53;
+	cmd[2] = commandDict[setting];
+	vector<unsigned char> resp;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand need to change
+	int ret = QueryCommand(cmd, resp);
 	if (ret != DEVICE_OK) 
 	{
+		// consider alert-ing or printing the error
 		return ret;
 	}
 
 	// extract data
-	string dataString = resp[5];
-	stringstream(dataString) >> data;
+	// NOTE: byte to long conversion happens here!!!
+	data = 0;
+	for(size_t i=2; i<stage_byte_len_; data += resp[i] * (1<<(8 * (i-2))));
 	return DEVICE_OK;
 }
 
@@ -564,11 +582,32 @@ int ZaberBinaryStage::SetSetting(long device, long axis, string setting, long da
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::SetSetting\n", true);
 
-	ostringstream cmd; 
-	cmd << cmdPrefix_ << device << " " << axis << " set " << setting << " " << data; //cmd needs translation to binary
-	vector<string> resp;
+	/*
+	Byte_1 = device (0 or 1; shouldn't matter)
+	Byte_2 = if setting is resolution, 37 (note that this is microstep resolution)
+			 if setting is position, 45
+			 if setting is maxspeed, 42 (this is the target speed not the max speed, but close enough)
+			 if setting is accel, 43
+	Byte_3 - Byte_6 = data (base 256 backwards)
+	*/
+	unordered_map<string, unsigned char> commandDict;
+	commandDict["resolution"] = 37;
+	commandDict["position"] = 45;
+	commandDict["maxspeed"] = 42;
+	commandDict["accel"] = 43;
+	commandDict["limit.min"] = 106;
+	commandDict["limit.max"] = 44;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = device;
+	cmd[1] = commandDict[setting];
+	//conversion of long to bytes
+	for(size_t i=2; i<stage_byte_len_; cmd[i++]  = data & (((1 << 8) - 1) << (8 * (i-2))));
+
+	vector<unsigned char> resp;
+	
+	int ret = QueryCommand(cmd, resp);
 	if (ret != DEVICE_OK)
 	{
 		return ERR_SETTING_FAILED;
@@ -578,15 +617,17 @@ int ZaberBinaryStage::SetSetting(long device, long axis, string setting, long da
 }
 
 
-bool ZaberBinaryStage::IsBusy(long device) const
+bool ZaberBinaryStage::IsBusy(long device) const //??? does this exist in binary?
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::IsBusy\n", true);
 
-	ostringstream cmd;
-	cmd << cmdPrefix_ << device; //cmd needs translation to binary
-	vector<string> resp;
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = device;
+	cmd[1] = 50; //Ask for device ID
+	vector<unsigned char> resp;
 
-	int ret = QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
+	int ret = QueryCommand(cmd, resp);
 	if (ret != DEVICE_OK)
 	{
 		ostringstream os;
@@ -594,8 +635,8 @@ bool ZaberBinaryStage::IsBusy(long device) const
 		core_->LogMessage(device_, os.str().c_str(), false);
 		return false;
 	}
-
-	return (resp[3] == ("BUSY"));
+	//if we figure out how to query for busy status, put here
+	return false;
 }
 
 
@@ -603,10 +644,19 @@ int ZaberBinaryStage::Stop(long device) const
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::Stop\n", true);
 
-	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " stop"; //cmd needs translation to binary
-	vector<string> resp;
-	return QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand may need to change
+	/*
+	Byte_1 = device (0 or 1; shouldn't matter)
+	Byte_2 = 23
+	Byte_3-Byte_6 = ignored
+	n.b. ASCII stop returns 0, whereas binary stop returns the final position
+	*/
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = device;
+	cmd[1] = 23;
+	vector<unsigned char> resp;
+
+	return QueryCommand(cmd, resp);
 }
 
 
@@ -628,46 +678,28 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::SendMoveCommand\n", true);
 
-	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " move " << type << " " << data; //cmd needs translation to binary
-	vector<string> resp;
-	return QueryCommand(cmd.str().c_str(), resp); //args of QueryCommand need to change
-}
-
-
-int ZaberBinaryStage::SendAndPollUntilIdle(long device, long axis, string command, int timeoutMs) const
-{
-	core_->LogMessage(device_, "ZaberBinaryStage::SendAndPollUntilIdle\n", true);
-
-	ostringstream cmd;
-	cmd << cmdPrefix_ << device << " " << axis << " " << command; //cmd needs translation to binary
-	vector<string> resp;
-
-	int ret = QueryCommand(cmd.str().c_str(), resp);
-	if (ret != DEVICE_OK) 
-	{
-		return ret;
-	}
-
-	int numTries = 0, pollIntervalMs = 100;
-	do
-	{
-		numTries++;
-		CDeviceUtils::SleepMs(pollIntervalMs);
-	}
-	while (IsBusy(device) && (numTries*pollIntervalMs < timeoutMs));
 	
-	if (numTries*pollIntervalMs >= timeoutMs)
-	{
-		return ERR_BUSY_TIMEOUT;
-	}
+	/*
+	Byte_1 = device (0 or 1; shouldn't matter)
+	Byte_2 = if type is 'abs', 20
+			 if type is 'rel', 21
+			 if type is 'vel', 22
+	Byte_3 - Byte_6 = data (base 256 backwards)
+	*/
+	unordered_map<string, unsigned char> commandDict;
+	commandDict["abs"] = 20;
+	commandDict["rel"] = 21;
+	commandDict["vel"] = 22;
+	vector<const unsigned char> cmd(stage_byte_len_, 0);
+	// maybe device is 0??
+	cmd[0] = device;
+	cmd[1] = commandDict[type];
+	//conversion of long to bytes
+	for(size_t i=2; i<stage_byte_len_; cmd[i++]  = data & (((1 << 8) - 1) << (8 * (i-2))));
+	vector<unsigned char> resp;
 
-	ostringstream os;
-	os << "Completed after " << (numTries*pollIntervalMs/1000.0) << " seconds.";
-	core_->LogMessage(device_, os.str().c_str(), true);
-	return DEVICE_OK;
+	return QueryCommand(cmd, resp);
 }
-
 
 /*
 //Functions from UserDefinedSerialImpl.h for communication with a binary device. (Q: why were they in the .h file? Does it matter?)
