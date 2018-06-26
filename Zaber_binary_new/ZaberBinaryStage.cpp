@@ -527,21 +527,27 @@ int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, un
 	unsigned long byteIndex = 0;
 	std::vector<char> buf(10);
 	ostringstream co;
-	MM::MMTime deadline = core_->GetCurrentMMTime() + MM::MMTime(500000.0); // us
+	MM::MMTime deadline = core_->GetCurrentMMTime() + MM::MMTime(50000000.0); // us
 	//ret = core_->ReadFromSerial(device_, port_.c_str(), replyCStyle, stage_byte_len_, respLength);
-	do
-	{
-	  unsigned char* bufPtr = reinterpret_cast<unsigned char*>(&buf[0]);
-      err = core_->ReadFromSerial(device_, port_.c_str(), bufPtr, static_cast<unsigned long>(buf.size()), respLength);
-	  
-	  //core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (while loop)\n", true);
-	  //co << "byteIndex:" << byteIndex << ", respLength: " << respLength << ", Response: ";
-	  //for(int i=0; i<static_cast<int>(buf.size()); co << static_cast<unsigned int>(buf[i++]));
-	  //core_->LogMessage(device_, co.str().c_str(), true);
-	  //co.clear();
-      //co.str("");
+	MM::MMTime shorterDeadline;
+	long sleepTime_ = 500;
 
-	  if(respLength) {
+	//while (byteIndex < stage_byte_len_ && core_->GetCurrentMMTime() < deadline) //final timeout deadline to receive the full response before throwing DEVICE_SERIAL_INVALID_RESPONSE error
+	//{
+	shorterDeadline = core_->GetCurrentMMTime() + MM::MMTime(10000000.0);
+	while (byteIndex < stage_byte_len_ && core_->GetCurrentMMTime() < shorterDeadline)
+	{
+		unsigned char* bufPtr = reinterpret_cast<unsigned char*>(&buf[0]);
+		err = core_->ReadFromSerial(device_, port_.c_str(), bufPtr, static_cast<unsigned long>(buf.size()), respLength);
+	  
+		//core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (while loop)\n", true);
+		//co << "byteIndex:" << byteIndex << ", respLength: " << respLength << ", Response: ";
+		//for(int i=0; i<static_cast<int>(buf.size()); co << static_cast<unsigned int>(buf[i++]));
+		//core_->LogMessage(device_, co.str().c_str(), true);
+		//co.clear();
+		//co.str("");
+
+		if(respLength) {
 		//copy buf into reply, protecting the memory for reply
 		unsigned long iMax = respLength;
 		//co << "iMax: " << iMax;
@@ -554,13 +560,16 @@ int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, un
 		}
 		//static_cast<unsigned char>
 		for(unsigned long i=0; i < iMax; reply[byteIndex + i++] = (unsigned char) buf[i]);
-	  }
+		}
 
-	  byteIndex += respLength;
-      if (err != DEVICE_OK)
-         return err;
+		byteIndex += respLength;
+		if (err != DEVICE_OK)
+			return err;
 	}
-	while (byteIndex < stage_byte_len_ && core_->GetCurrentMMTime() < deadline);
+		
+		//Sleep(sleepTime_); //If a response is not received in the first timeout period, put this process to sleep for sleepTime (ms) before listening again
+		
+	//}
 	
 	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (after while loop)\n", true);
 	co << "Reply field 3:" << reply[2];
@@ -788,7 +797,7 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 	commandDict["abs"] = 20;
 	commandDict["rel"] = 21;
 	commandDict["vel"] = 22;
-
+	/*
 	long travel;
 	if (type == "abs") {
 		int ret = GetSetting(deviceAddress_, axis, "pos", travel);
@@ -816,7 +825,7 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 		// convert to um/ms
 		speed = (speedData/convFactor_)*stepSizeUm_/(double) 1000;
 		
-		sleepyTimeFloat = (double) travel / 6.4 / speed - (double) 250;
+		sleepyTimeFloat = (double) travel / 6.4 / 10.0 / speed - (double) 250;
 		if (sleepyTimeFloat < 0)
 			sleepyTimeFloat = 0;
 	}
@@ -826,6 +835,9 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 	core_->LogMessage(device_, os.str().c_str(), true);
 	os.clear();
 	os.str("");
+	*/
+
+	ostringstream os;
 	vector<const unsigned char> cmd(stage_byte_len_, 0);
 	// maybe device is 0??
 	cmd[0] = device;
@@ -870,6 +882,7 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 	os.clear(); os.str(""); os << "This is l4: " << l4 << " and this is cmd[5]: " << cmd[5];	core_->LogMessage(device_, os.str().c_str(), true);
 
 	unsigned char resp[stage_byte_len_] = {0};
+	long sleepyTimeMs = 0;
 	return QueryCommand(cmd, resp, sleepyTimeMs);
 }
 
