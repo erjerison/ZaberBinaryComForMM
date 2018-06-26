@@ -127,11 +127,11 @@ int ZaberBinaryStage::Initialize()
 	}
 
 	// Disable alert messages.
-	ret = SetSetting(deviceAddress_, 0, "comm.alert", 0);
-	if (ret != DEVICE_OK) 
-	{
-		return ret;
-	}
+	//ret = SetSetting(deviceAddress_, 0, "comm.alert", 0);
+	//if (ret != DEVICE_OK) 
+	//{
+	//	return ret;
+	//}
 
 	// Calculate step size.
 	ret = GetSetting(deviceAddress_, axisNumber_, "resolution", resolution_);
@@ -256,7 +256,8 @@ int ZaberBinaryStage::Home()
 	// maybe device is 0??
 	cmd[0] = 1;
 	cmd[1] = 1;
-	vector<unsigned char> resp;
+
+	unsigned char resp[stage_byte_len_] = {0};
 	return QueryCommand(cmd, resp);
 }
 
@@ -455,17 +456,25 @@ int ZaberBinaryStage::ClearPort() const
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::ClearPort\n", true);
 
-	const int bufSize = 255;
+	const int bufSize = stage_byte_len_;
 	unsigned char clear[bufSize];
 	unsigned long read = bufSize;
 	int ret;
+	long long rett;
 
 	while ((int) read == bufSize)
 	{
 		ret = core_->ReadFromSerial(device_, port_.c_str(), clear, bufSize, read);
+		rett = (long long)ret;
+		core_->LogMessage(device_, "ZaberBinaryStage::ClearPort", true);
+		core_->LogMessage(device_, to_string(rett).c_str(), true);
+		rett = (long long)read;
+		core_->LogMessage(device_, to_string(rett).c_str(), true);
+
 		if (ret != DEVICE_OK) 
 		{
 			return ret;
+			
 		}
 	}
 
@@ -480,22 +489,27 @@ int ZaberBinaryStage::SendCommand(const std::vector<const unsigned char> command
 
 	//Proposed recasting of vector
 	if(command.size() != stage_byte_len_) {
-		// Consider throwing an exception (base on convention in this jungle)
+		// Consider throwing an exception (based on convention in this jungle)
 		return 1;
 	}
-	const unsigned char* baseCommand = reinterpret_cast<const unsigned char*>(&command);
-
+	unsigned char baseCommand[stage_byte_len_];
+	for (int i = 0; i < command.size(); baseCommand[i++] = command[i]);
+	for (int i = 0; i < command.size(); i++) {
+		ostringstream co;
+		co << static_cast<unsigned int>(baseCommand[i]) << std::flush;
+		core_->LogMessage(device_, co.str().c_str(), true);
+	}
 	return core_->WriteToSerial(device_, port_.c_str(), baseCommand, stage_byte_len_);
 }
 
 
 // COMMUNICATION "send & receive" utility function:
-int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, vector<unsigned char>& reply) const //Args of QueryCommand need to change
+int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, unsigned char* reply, long sleepyTimeMs) const //Args of QueryCommand need to change
 {
 	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand\n", true);
 
-	unsigned char replyCStyle[stage_byte_len_] = {};
-	for(size_t i=0; i < stage_byte_len_; replyCStyle[i++] = 0);
+	ostringstream replyforprinting;
+	replyforprinting << "Initialization of reply";
 
 	int ret = SendCommand(command);
 	if (ret != DEVICE_OK) 
@@ -503,20 +517,67 @@ int ZaberBinaryStage::QueryCommand(const vector<const unsigned char> command, ve
 		return ret;
 	}
 
+	// get drowsy if requested (moving) - this limits the damage caused by long timeouts
+	if (sleepyTimeMs > 0) {
+		Sleep(sleepyTimeMs);
+	}
+
 	unsigned long respLength;
-	ret = core_->ReadFromSerial(device_, port_.c_str(), replyCStyle, stage_byte_len_, respLength);
+	int err;
+	unsigned long byteIndex = 0;
+	std::vector<char> buf(10);
+	ostringstream co;
+	MM::MMTime deadline = core_->GetCurrentMMTime() + MM::MMTime(500000.0); // us
+	//ret = core_->ReadFromSerial(device_, port_.c_str(), replyCStyle, stage_byte_len_, respLength);
+	do
+	{
+	  unsigned char* bufPtr = reinterpret_cast<unsigned char*>(&buf[0]);
+      err = core_->ReadFromSerial(device_, port_.c_str(), bufPtr, static_cast<unsigned long>(buf.size()), respLength);
+	  
+	  //core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (while loop)\n", true);
+	  //co << "byteIndex:" << byteIndex << ", respLength: " << respLength << ", Response: ";
+	  //for(int i=0; i<static_cast<int>(buf.size()); co << static_cast<unsigned int>(buf[i++]));
+	  //core_->LogMessage(device_, co.str().c_str(), true);
+	  //co.clear();
+      //co.str("");
+
+	  if(respLength) {
+		//copy buf into reply, protecting the memory for reply
+		unsigned long iMax = respLength;
+		//co << "iMax: " << iMax;
+		//core_->LogMessage(device_, co.str().c_str(), true);
+		//co.clear();
+		//co.str("");
+		if((byteIndex + iMax) > stage_byte_len_) {
+			iMax = stage_byte_len_ - byteIndex;
+			//core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (while loop): too long answer?\n", true);
+		}
+		//static_cast<unsigned char>
+		for(unsigned long i=0; i < iMax; reply[byteIndex + i++] = (unsigned char) buf[i]);
+	  }
+
+	  byteIndex += respLength;
+      if (err != DEVICE_OK)
+         return err;
+	}
+	while (byteIndex < stage_byte_len_ && core_->GetCurrentMMTime() < deadline);
+	
+	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (after while loop)\n", true);
+	co << "Reply field 3:" << reply[2];
+	core_->LogMessage(device_, co.str().c_str(), true);
+	co.clear();
+    co.str("");
+
 	if (ret != DEVICE_OK) 
 	{
 		return ret;
 	}
+	core_->LogMessage(device_, "ZaberBinaryStage::QueryCommand (after while)\n", true);
 
-	if (respLength != stage_byte_len_)
+	if (byteIndex != stage_byte_len_)
 	{
 		return  DEVICE_SERIAL_INVALID_RESPONSE;
 	}
-
-	// fill reply with replyCStyle
-	for(size_t i=0; i < stage_byte_len_; reply[i++] = replyCStyle[i]);
 
 	// byte #2 is 255 if an error occurred
 	if (reply[1] == 255) {
@@ -551,7 +612,7 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 	*/
 	unordered_map<string, unsigned char> commandDict;
 	commandDict["resolution"] = 37;
-	commandDict["position"] = 45;
+	commandDict["pos"] = 45;
 	commandDict["maxspeed"] = 42;
 	commandDict["accel"] = 43;
 	commandDict["limit.min"] = 106;
@@ -561,9 +622,10 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 	cmd[0] = device;
 	cmd[1] = 53;
 	cmd[2] = commandDict[setting];
-	vector<unsigned char> resp;
 
+	unsigned char resp[stage_byte_len_] = {0};
 	int ret = QueryCommand(cmd, resp);
+
 	if (ret != DEVICE_OK) 
 	{
 		// consider alert-ing or printing the error
@@ -572,8 +634,18 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 
 	// extract data
 	// NOTE: byte to long conversion happens here!!!
+	// TO DO: implement negative replies
 	data = 0;
-	for(size_t i=2; i<stage_byte_len_; data += resp[i] * (1<<(8 * (i-2))));
+	core_->LogMessage(device_, "Heard response, before byte conversion ", true);
+	ostringstream co;
+	co << "First data field of resp before byte to long conversion " << static_cast<unsigned int>(resp[2]) << std::flush;
+	core_->LogMessage(device_, co.str().c_str(), true);
+	for(unsigned long i=2; i<stage_byte_len_; data += static_cast<unsigned int>(resp[i++]) * (1<<(8 * (i-2))));
+	co.clear();
+    co.str("");
+	co << "Data after byte to long conversion " << static_cast<unsigned int>(data) << std::flush;
+	core_->LogMessage(device_, co.str().c_str(), true);
+
 	return DEVICE_OK;
 }
 
@@ -590,9 +662,10 @@ int ZaberBinaryStage::SetSetting(long device, long axis, string setting, long da
 			 if setting is accel, 43
 	Byte_3 - Byte_6 = data (base 256 backwards)
 	*/
+
 	unordered_map<string, unsigned char> commandDict;
 	commandDict["resolution"] = 37;
-	commandDict["position"] = 45;
+	commandDict["pos"] = 45;
 	commandDict["maxspeed"] = 42;
 	commandDict["accel"] = 43;
 	commandDict["limit.min"] = 106;
@@ -603,10 +676,35 @@ int ZaberBinaryStage::SetSetting(long device, long axis, string setting, long da
 	cmd[0] = device;
 	cmd[1] = commandDict[setting];
 	//conversion of long to bytes
-	for(size_t i=2; i<stage_byte_len_; cmd[i++]  = data & (((1 << 8) - 1) << (8 * (i-2))));
-
-	vector<unsigned char> resp;
 	
+	long long dataLong = data;
+	long long long32 = 256*256*256;
+	long32 *= 256;
+	if (data < 0){
+		dataLong += long32;
+		core_->LogMessage(device_, "We are trying to correct a negative value of data\n", true);
+
+	}
+	ostringstream os;
+	os << "data after negative number correction: " << dataLong / (256*256*256);
+	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear();
+	os.str("");
+	long l1;
+	long l2;
+	long l3;
+	long l4;
+
+	l1 = dataLong % 256;
+	l2 =  (dataLong % (256*256) - l1) / 256;
+	l3 = (dataLong % (256*256*256) - 256*l2 - l1) / (256*256);
+	l4 = (dataLong - 256*256*l3 - 256*l2 - l1) / (256*256*256);
+
+	cmd[2] = (unsigned char) l1;
+	cmd[3] = (unsigned char) l2;
+	cmd[4] = (unsigned char) l3;
+	cmd[5] = (unsigned char) l4;
+	unsigned char resp[stage_byte_len_] = {0};
 	int ret = QueryCommand(cmd, resp);
 	if (ret != DEVICE_OK)
 	{
@@ -625,8 +723,8 @@ bool ZaberBinaryStage::IsBusy(long device) const //??? does this exist in binary
 	// maybe device is 0??
 	cmd[0] = device;
 	cmd[1] = 50; //Ask for device ID
-	vector<unsigned char> resp;
 
+	unsigned char resp[stage_byte_len_] = {0};
 	int ret = QueryCommand(cmd, resp);
 	if (ret != DEVICE_OK)
 	{
@@ -654,8 +752,8 @@ int ZaberBinaryStage::Stop(long device) const
 	// maybe device is 0??
 	cmd[0] = device;
 	cmd[1] = 23;
-	vector<unsigned char> resp;
 
+	unsigned char resp[stage_byte_len_] = {0};
 	return QueryCommand(cmd, resp);
 }
 
@@ -690,15 +788,89 @@ int ZaberBinaryStage::SendMoveCommand(long device, long axis, std::string type, 
 	commandDict["abs"] = 20;
 	commandDict["rel"] = 21;
 	commandDict["vel"] = 22;
+
+	long travel;
+	if (type == "abs") {
+		int ret = GetSetting(deviceAddress_, axis, "pos", travel);
+		travel = data - travel;
+	} else if (type == "rel") {
+		travel = data;
+	} else {
+		travel = 0;
+	}
+
+	if (travel < 0){
+		travel = -travel;
+	}
+	// Long travels make you sleepy
+	double sleepyTimeFloat = 0;
+	long speedData = -1;
+	double speed = 0;
+	if (travel > 100) {
+		int ret = GetSetting(deviceAddress_, axis, "maxspeed", speedData);
+		if (ret != DEVICE_OK) 
+		{
+			return ret;
+		}
+
+		// convert to um/ms
+		speed = (speedData/convFactor_)*stepSizeUm_/(double) 1000;
+		
+		sleepyTimeFloat = (double) travel / 6.4 / speed - (double) 250;
+		if (sleepyTimeFloat < 0)
+			sleepyTimeFloat = 0;
+	}
+	long sleepyTimeMs = sleepyTimeFloat;
+	ostringstream os;
+	os << "Calculated speed (um/ms): " << speed << " Sleepy time float: " << sleepyTimeFloat << " Sleeping for: " << sleepyTimeMs << " ms" << " Travel (steps): " << travel << " Speed (?? units): " << speedData;
+	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear();
+	os.str("");
 	vector<const unsigned char> cmd(stage_byte_len_, 0);
 	// maybe device is 0??
 	cmd[0] = device;
 	cmd[1] = commandDict[type];
 	//conversion of long to bytes
-	for(size_t i=2; i<stage_byte_len_; cmd[i++]  = data & (((1 << 8) - 1) << (8 * (i-2))));
-	vector<unsigned char> resp;
+	
+	os << "Trying to move by: " << data << " Arithmetic test: " << data % (256*256);
+	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear();
+	os.str("");
+	//for(size_t i=2; i<stage_byte_len_; cmd[i++]  = data & (((1 << 8) - 1) << (8 * (i-2))));
+	long long dataLong = data;
+	long long long32 = 256*256*256;
+	long32 *= 256;
+	if (data < 0){
+		dataLong += long32;
+		core_->LogMessage(device_, "We are trying to correct a negative value of data\n", true);
 
-	return QueryCommand(cmd, resp);
+	}
+	os << "data after negative number correction: " << dataLong / (256*256*256);
+	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear();
+	os.str("");
+	long l1;
+	long l2;
+	long l3;
+	long l4;
+
+	l1 = dataLong % 256;
+	l2 =  (dataLong % (256*256) - l1) / 256;
+	l3 = (dataLong % (256*256*256) - 256*l2 - l1) / (256*256);
+	l4 = (dataLong - 256*256*l3 - 256*l2 - l1) / (256*256*256);
+
+	cmd[2] = (unsigned char) l1;
+	cmd[3] = (unsigned char) l2;
+	cmd[4] = (unsigned char) l3;
+	cmd[5] = (unsigned char) l4;
+
+	os.clear(); os.str(""); os << "This is l1: " << l1 << " and this is cmd[2]: " << cmd[2]; 	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear(); os.str(""); os << "This is l2: " << l2 << " and this is cmd[3]: " << cmd[3];	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear(); os.str(""); os << "This is l3: " << l3 << " and this is cmd[4]: " << cmd[4];	core_->LogMessage(device_, os.str().c_str(), true);
+	os.clear(); os.str(""); os << "This is l4: " << l4 << " and this is cmd[5]: " << cmd[5];	core_->LogMessage(device_, os.str().c_str(), true);
+
+	unsigned char resp[stage_byte_len_] = {0};
+	return QueryCommand(cmd, resp, sleepyTimeMs);
 }
 
 /*

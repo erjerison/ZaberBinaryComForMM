@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 
+
 //////////////////////////////////////////////////////////////////////////////
 // Various constants: error codes, error messages
 //////////////////////////////////////////////////////////////////////////////
@@ -81,7 +82,7 @@ public:
 	protected:
 	int ClearPort() const;
 	int SendCommand(const std::vector<const unsigned char> command) const;
-	int QueryCommand(const std::vector<const unsigned char> command, std::vector<unsigned char>& reply) const;
+	int QueryCommand(const std::vector<const unsigned char> command, unsigned char* reply, long sleepyTimeMs=0) const;
 	int GetSetting(long device, long axis, std::string setting, long& data) const;
 	int SetSetting(long device, long axis, std::string setting, long data) const;
 	bool IsBusy(long device) const;
