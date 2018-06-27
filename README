@@ -1,0 +1,7 @@
+###Project: modifying the Zaber stage device adapter for micromanager to support communication with binary devices (i.e. T series stages)
+###Authors: Elizabeth Jerison and Fabio Zanini
+###Date: 06/27/2018
+###Compilation: Windows 10 64 bit architecture, using Visual Studio 2010 Express
+
+Known issues:
+The device adapter does not handle the case where you manually move the stage (using the knob on the side) while micromanager is running. If you move the stage manually, restart micromanager and the stage should correctly update its location. 
