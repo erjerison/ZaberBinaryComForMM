@@ -646,17 +646,15 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 
 	data = 0;
 	core_->LogMessage(device_, "Heard response, before byte conversion ", true);
-	ostringstream co;
-	co << "First data field of resp before byte to long conversion " << static_cast<unsigned int>(resp[2]) << std::flush;
-	core_->LogMessage(device_, co.str().c_str(), true);
+	
 
-	long long dataLong;
+	long long dataLong = 0;
 
 	dataLong += (long) resp[2];
-	dataLong += (long) resp[3]*256;
-	dataLong += (long) resp[4]*256*256;
+	dataLong += ((long) resp[3])*256;
+	dataLong += ((long) resp[4])*256*256;
 	if (resp[5] <= 127) {
-		dataLong += (long) resp[5]*256*256*256;
+		dataLong += ((long) resp[5])*256*256*256;
 	}
 	else {
 		//handling negative data
@@ -665,7 +663,9 @@ int ZaberBinaryStage::GetSetting(long device, long axis, string setting, long& d
 	}
 
 	data = dataLong;
-
+	ostringstream co;
+	co << "dataLong after byte to long conversion " << dataLong << std::flush;
+	core_->LogMessage(device_, co.str().c_str(), true);
 	co.clear();
     co.str("");
 	co << "Data after byte to long conversion " << static_cast<unsigned int>(data) << std::flush;
